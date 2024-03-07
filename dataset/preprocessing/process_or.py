@@ -4,8 +4,14 @@ import datetime
 import os
 from tqdm import tqdm
 
-from process_amazon import filter_inters, make_inters_in_order, get_user_item_from_ratings, \
-                           generate_training_data, generate_item_embedding, convert_to_atomic_files
+from process_amazon import (
+    filter_inters,
+    make_inters_in_order,
+    get_user_item_from_ratings,
+    generate_training_data,
+    generate_item_embedding,
+    convert_to_atomic_files,
+)
 from utils import check_path, set_device, load_plm
 
 
@@ -39,9 +45,12 @@ def preprocess_rating(args):
     # 1. Filter items w/o meta data;
     # 2. K-core filtering;
     print('The number of raw inters: ', len(rating_inters))
-    rating_inters = filter_inters(rating_inters, can_items=rating_items,
-                                  user_k_core_threshold=args.user_k,
-                                  item_k_core_threshold=args.item_k)
+    rating_inters = filter_inters(
+        rating_inters,
+        can_items=rating_items,
+        user_k_core_threshold=args.user_k,
+        item_k_core_threshold=args.item_k,
+    )
 
     # sort interactions chronologically for each user
     rating_inters = make_inters_in_order(rating_inters)
@@ -112,8 +121,7 @@ if __name__ == '__main__':
     item_text_list = preprocess_text(args, rating_inters)
 
     # split train/valid/test
-    train_inters, valid_inters, test_inters, user2index, item2index = \
-        generate_training_data(args, rating_inters)
+    train_inters, valid_inters, test_inters, user2index, item2index = generate_training_data(args, rating_inters)
 
     # device & plm initialization
     device = set_device(args.gpu_id)
@@ -125,12 +133,17 @@ if __name__ == '__main__':
     check_path(os.path.join(args.output_path, args.dataset))
 
     # generate PLM emb and save to file
-    generate_item_embedding(args, item_text_list, item2index, 
-                            plm_tokenizer, plm_model, word_drop_ratio=-1)
+    generate_item_embedding(args, item_text_list, item2index, plm_tokenizer, plm_model, drop_ratio=-1)
     # pre-stored word drop PLM embs
     if args.word_drop_ratio > 0:
-        generate_item_embedding(args, item_text_list, item2index, 
-                                plm_tokenizer, plm_model, word_drop_ratio=args.word_drop_ratio)
+        generate_item_embedding(
+            args,
+            item_text_list,
+            item2index,
+            plm_tokenizer,
+            plm_model,
+            drop_ratio=args.word_drop_ratio,
+        )
 
     # save interaction sequences into atomic files
     convert_to_atomic_files(args, train_inters, valid_inters, test_inters)

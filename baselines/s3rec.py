@@ -78,7 +78,7 @@ class S3Rec(SequentialRecommender):
             hidden_dropout_prob=self.hidden_dropout_prob,
             attn_dropout_prob=self.attn_dropout_prob,
             hidden_act=self.hidden_act,
-            layer_norm_eps=self.layer_norm_eps
+            layer_norm_eps=self.layer_norm_eps,
         )
 
         self.LayerNorm = nn.LayerNorm(self.hidden_size, eps=self.layer_norm_eps)
@@ -111,7 +111,7 @@ class S3Rec(SequentialRecommender):
             self.load_state_dict(pretrained['state_dict'])
 
     def _init_weights(self, module):
-        """ Initialize the weights """
+        """Initialize the weights"""
         if isinstance(module, (nn.Linear, nn.Embedding)):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
@@ -185,13 +185,13 @@ class S3Rec(SequentialRecommender):
     ):
         """Pretrain out model using four pre-training tasks:
 
-            1. Associated Attribute Prediction
+        1. Associated Attribute Prediction
 
-            2. Masked Item Prediction
+        2. Masked Item Prediction
 
-            3. Masked Attribute Prediction
+        3. Masked Attribute Prediction
 
-            4. Segment Prediction
+        4. Segment Prediction
         """
         # Encode masked sequence
         sequence_output = self.forward(masked_item_sequence)
@@ -201,8 +201,7 @@ class S3Rec(SequentialRecommender):
         aap_score = self._associated_attribute_prediction(sequence_output, feature_embedding)
         aap_loss = self.loss_fct(aap_score, features.view(-1, self.n_features).float())
         # only compute loss at non-masked position
-        aap_mask = (masked_item_sequence != self.mask_token).float() * \
-                   (masked_item_sequence != 0).float()
+        aap_mask = (masked_item_sequence != self.mask_token).float() * (masked_item_sequence != 0).float()
         aap_loss = torch.sum(aap_loss * aap_mask.flatten().unsqueeze(-1))
 
         # MIP
@@ -232,10 +231,12 @@ class S3Rec(SequentialRecommender):
         sp_distance = torch.sigmoid(pos_segment_score - neg_segment_score)
         sp_loss = torch.sum(self.loss_fct(sp_distance, torch.ones_like(sp_distance, dtype=torch.float32)))
 
-        pretrain_loss = self.aap_weight * aap_loss \
-                        + self.mip_weight * mip_loss \
-                        + self.map_weight * map_loss \
-                        + self.sp_weight * sp_loss
+        pretrain_loss = (
+            self.aap_weight * aap_loss
+            + self.mip_weight * mip_loss
+            + self.map_weight * map_loss
+            + self.sp_weight * sp_loss
+        )
 
         return pretrain_loss
 
@@ -257,7 +258,11 @@ class S3Rec(SequentialRecommender):
         batch_size = item_seq.size(0)
 
         associated_features = torch.zeros([batch_size, item_seq.size(1), self.n_features], dtype=torch.long, device=device)
-        associated_features = associated_features.scatter(dim=2, index=item_seq.unsqueeze(-1), src=torch.ones([batch_size, item_seq.size(1), 1], dtype=torch.long, device=device))
+        associated_features = associated_features.scatter(
+            dim=2,
+            index=item_seq.unsqueeze(-1),
+            src=torch.ones([batch_size, item_seq.size(1), 1], dtype=torch.long, device=device),
+        )
 
         end_index = item_seq_len.cpu().numpy().tolist()
         item_seq = item_seq.cpu().numpy().tolist()
@@ -303,12 +308,19 @@ class S3Rec(SequentialRecommender):
                 neg_start_id = random.randint(0, len(long_sequence) - sample_length)
                 pos_segment = instance[start_id:start_id + sample_length]
                 neg_segment = long_sequence[neg_start_id:neg_start_id + sample_length]
-                masked_segment = instance[:start_id] + [self.mask_token] * sample_length \
-                                 + instance[start_id + sample_length:]
-                pos_segment = [self.mask_token] * start_id + pos_segment + \
-                              [self.mask_token] * (len(instance) - (start_id + sample_length))
-                neg_segment = [self.mask_token] * start_id + neg_segment + \
-                              [self.mask_token] * (len(instance) - (start_id + sample_length))
+                masked_segment = (
+                    instance[:start_id] + [self.mask_token] * sample_length + instance[start_id + sample_length:]
+                )
+                pos_segment = (
+                    [self.mask_token] * start_id
+                    + pos_segment
+                    + [self.mask_token] * (len(instance) - (start_id + sample_length))
+                )
+                neg_segment = (
+                    [self.mask_token] * start_id
+                    + neg_segment
+                    + [self.mask_token] * (len(instance) - (start_id + sample_length))
+                )
             masked_segment_list.append(self._padding_zero_at_left(masked_segment))
             pos_segment_list.append(self._padding_zero_at_left(pos_segment))
             neg_segment_list.append(self._padding_zero_at_left(neg_segment))
@@ -320,17 +332,24 @@ class S3Rec(SequentialRecommender):
         pos_segment_list = torch.tensor(pos_segment_list, dtype=torch.long, device=device).view(batch_size, -1)
         neg_segment_list = torch.tensor(neg_segment_list, dtype=torch.long, device=device).view(batch_size, -1)
 
-        return associated_features, masked_item_sequence, pos_items, neg_items, \
-               masked_segment_list, pos_segment_list, neg_segment_list
+        return (
+            associated_features,
+            masked_item_sequence,
+            pos_items,
+            neg_items,
+            masked_segment_list,
+            pos_segment_list,
+            neg_segment_list,
+        )
 
     def calculate_loss(self, interaction):
         item_seq = interaction[self.ITEM_SEQ]
         item_seq_len = interaction[self.ITEM_SEQ_LEN]
         # pretrain
         if self.train_stage == 'pretrain':
-            features, masked_item_sequence, pos_items, neg_items, \
-            masked_segment_sequence, pos_segment, neg_segment \
-                = self.reconstruct_pretrain_data(item_seq, item_seq_len)
+            features, masked_item_sequence, pos_items, neg_items, masked_segment_sequence, pos_segment, neg_segment = (
+                self.reconstruct_pretrain_data(item_seq, item_seq_len)
+            )
 
             loss = self.pretrain(
                 features, masked_item_sequence, pos_items, neg_items, masked_segment_sequence, pos_segment, neg_segment
@@ -370,6 +389,6 @@ class S3Rec(SequentialRecommender):
         item_seq_len = interaction[self.ITEM_SEQ_LEN]
         seq_output = self.forward(item_seq, bidirectional=False)
         seq_output = self.gather_indexes(seq_output, item_seq_len - 1)
-        test_items_emb = self.item_embedding.weight[:self.n_items - 1]  # delete masked token
+        test_items_emb = self.item_embedding.weight[: self.n_items - 1]  # delete masked token
         scores = torch.matmul(seq_output, test_items_emb.transpose(0, 1))  # [B, n_items]
         return scores
