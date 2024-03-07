@@ -1,16 +1,17 @@
-import os
 import argparse
+import os
 from logging import getLogger
+
 import torch
-import torch.multiprocessing as mp
 import torch.distributed as dist
-from recbole.utils import init_seed, init_logger
+import torch.multiprocessing as mp
+from recbole.utils import init_logger, init_seed
 
 from config import Config
-from unisrec import UniSRec
-from data.dataset import PretrainUniSRecDataset
 from data.dataloader import CustomizedTrainDataLoader
+from data.dataset import PretrainUniSRecDataset
 from trainer import DDPPretrainTrainer
+from unisrec import UniSRec
 
 
 def pretrain(rank, world_size, dataset, **kwargs):

@@ -28,7 +28,7 @@ class DDPPretrainTrainer(Trainer):
         device_dis = torch.device("cuda", local_rank)
         # 3, 4 assign model to be distributed
         self.model.to(device_dis)
-        self.model = DistributedDataParallel(self.model, 
+        self.model = DistributedDataParallel(self.model,
                                              device_ids=[local_rank],
                                              output_device=local_rank).module
         return local_rank
@@ -62,8 +62,8 @@ class DDPPretrainTrainer(Trainer):
                 batch_data = data
 
             return batch_data
-        #change `interaction` datatype to a python `dict` object.  
-        #for some methods, you may need transfer more data unit like the following way.  
+        #change `interaction` datatype to a python `dict` object.
+        #for some methods, you may need transfer more data unit like the following way.
 
         data_dict = {}
         for k, v in interaction.interaction.items():
@@ -114,7 +114,6 @@ class DDPPretrainTrainer(Trainer):
                 self._generate_train_loss_output(epoch_idx, training_start_time, training_end_time, train_loss)
             if verbose:
                 self.logger.info(train_loss_output)
-            self._add_train_loss_to_tensorboard(epoch_idx, train_loss)
 
             if (epoch_idx + 1) % self.save_step == 0 and self.lrank == 0:
                 saved_model_file = os.path.join(

@@ -6,8 +6,10 @@ load_col:
 train_neg_sample_args: ~
 unisrec_transform: ~
 
-topk: [10, 50]
-metrics: [HIT, NDCG]
+topk: [10, 20]
+metrics: [RECALL, PRECISION, NDCG, MRR]
 valid_metric: NDCG@10
 eval_batch_size: 2048
 stopping_step: 10
+
+show_progress: False

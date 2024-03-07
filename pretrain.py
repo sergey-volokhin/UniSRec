@@ -12,7 +12,6 @@ from data.dataloader import CustomizedTrainDataLoader
 def pretrain(dataset, **kwargs):
     # configurations initialization
     props = ['props/UniSRec.yaml', 'props/pretrain.yaml']
-    print(props)
 
     # configurations initialization
     config = Config(model=UniSRec, dataset=dataset, config_file_list=props, config_dict=kwargs)
@@ -37,7 +36,7 @@ def pretrain(dataset, **kwargs):
     trainer = PretrainTrainer(config, model)
 
     # model pre-training
-    trainer.pretrain(pretrain_data, show_progress=True)
+    trainer.pretrain(pretrain_data, show_progress=False)
 
     return config['model'], config['dataset']
 
@@ -46,6 +45,5 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', type=str, default='FHCKM', help='dataset name')
     args, unparsed = parser.parse_known_args()
-    print(args)
 
     model, dataset = pretrain(args.d)

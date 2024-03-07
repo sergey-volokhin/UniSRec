@@ -18,28 +18,30 @@ def load_atomic_file(dataset_id, parent_data, train_data_path):
 
 def merge_and_save(dataset_names, input_path, output_path):
     dataset_names = dataset_names.split(',')
-    print('Convert dataset: ')
-    print(' Dataset: ', dataset_names)
 
     train_data = []
     valid_data = []
     test_data = []
     for i, dataset_name in enumerate(dataset_names):
-        print(i, dataset_name)
-        load_atomic_file(i, train_data,
-            os.path.join(input_path, dataset_name, f'{dataset_name}.train.inter'))
-        load_atomic_file(i, valid_data,
-            os.path.join(input_path, dataset_name, f'{dataset_name}.valid.inter'))
-        load_atomic_file(i, test_data,
-            os.path.join(input_path, dataset_name, f'{dataset_name}.test.inter'))
+        load_atomic_file(i, train_data, os.path.join(input_path, dataset_name, f'{dataset_name}.train.inter'))
+        load_atomic_file(i, valid_data, os.path.join(input_path, dataset_name, f'{dataset_name}.valid.inter'))
+        load_atomic_file(i, test_data, os.path.join(input_path, dataset_name, f'{dataset_name}.test.inter'))
 
     uid_list = list({_[0] for _ in train_data})
+
     def cmp(t):
         base, value = t.split('-')
         return int(base) * 10000000 + int(value)
+
     uid_list.sort(key=cmp)
 
-    short_name = ''.join([_[0] for _ in dataset_names])
+    if len(dataset_names) > 1:
+        short_name = ''.join([_[0] for _ in dataset_names])
+    else:
+        short_name = dataset_names[0][0]
+        if len(dataset_names[0].split('_')) > 1:
+            short_name += '_' + '_'.join(dataset_names[0].split('_')[1:])
+
     check_path(os.path.join(output_path, short_name))
 
     for token, merged_data in [('train', train_data), ('valid', valid_data), ('test', test_data)]:
@@ -55,8 +57,12 @@ def merge_and_save(dataset_names, input_path, output_path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--datasets', type=str, default='Food,Home,CDs,Kindle,Movies',
-                        help='Combination of pre-trained datasets, split by comma')
+    parser.add_argument(
+        '--datasets', '-d',
+        type=str,
+        default='Food,Home,CDs,Kindle,Movies',
+        help='Combination of pre-trained datasets, split by comma',
+    )
     parser.add_argument('--input_path', type=str, default='../pretrain/')
     parser.add_argument('--output_path', type=str, default='../pretrain/')
     args = parser.parse_args()
