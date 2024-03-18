@@ -1,12 +1,12 @@
 import argparse
+import os
 import warnings
 from collections import defaultdict
-from logging import getLogger
 
 import torch
 from recbole.config import Config
 from recbole.data import data_preparation
-from recbole.utils import get_trainer, init_logger, init_seed, set_color
+from recbole.utils import get_trainer, init_seed
 
 from data.dataset import UniSRecDataset
 from unisrec import UniSRec
@@ -14,57 +14,44 @@ from unisrec import UniSRec
 warnings.filterwarnings('ignore')
 
 
-def finetune(dataset, pretrained_file, fix_enc=True, **kwargs):
-    # configurations initialization
+def get_config(args):
     props = ['props/UniSRec.yaml', 'props/finetune.yaml']
-
-    # configurations initialization
-    config = Config(model=UniSRec, dataset=dataset, config_file_list=props, config_dict=kwargs)
-    config["state"] = 'warning'
+    config = Config(model=UniSRec, dataset=args.d, config_file_list=props)
+    config['data_path'] = os.path.join(
+        os.path.dirname(config['data_path']),
+        args.plm.split('/')[-1],
+        os.path.basename(config['data_path'])
+    )
     init_seed(config['seed'], config['reproducibility'])
+    # config["state"] = 'warning'
+    config['train_batch_size'] = args.batch_size
+    config['eval_batch_size'] = args.batch_size
+    config['gpu_id'] = args.gpu
+    return config
 
-    # logger initialization
-    init_logger(config)
-    logger = getLogger()
 
-    # dataset filtering
+def finetune(config, pretrained_file, fix_enc=True):
     dataset = UniSRecDataset(config)
-
-    # dataset splitting
     train_data, valid_data, test_data = data_preparation(config, dataset)
-
-    # model loading and initialization
     model = UniSRec(config, train_data.dataset).to(config['device'])
 
-    # Load pre-trained model
     if pretrained_file != '':
         checkpoint = torch.load(pretrained_file)
-        logger.info(f'Loading from {pretrained_file}')
-        logger.info(f'Transfer [{checkpoint["config"]["dataset"]}] -> [{dataset}]')
         model.load_state_dict(checkpoint['state_dict'], strict=False)
         if fix_enc:
-            logger.info('Fix encoder parameters.')
             for _ in model.position_embedding.parameters():
                 _.requires_grad = False
             for _ in model.trm_encoder.parameters():
                 _.requires_grad = False
 
-    # trainer loading and initialization
     trainer = get_trainer(config['MODEL_TYPE'], config['model'])(config, model)
-
-    # model training
     best_valid_score, best_valid_result = trainer.fit(
         train_data=train_data,
         valid_data=valid_data,
         saved=True,
         show_progress=config['show_progress'],
     )
-
-    # model evaluation
     test_result = trainer.evaluate(test_data, load_best_model=True, show_progress=config['show_progress'])
-
-    logger.info(set_color('best valid ', 'yellow') + f': {best_valid_result}')
-    logger.info(set_color('test result', 'yellow') + f': {test_result}')
 
     return (
         config['model'],
@@ -102,7 +89,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', type=str, default='Scientific', help='dataset name')
     parser.add_argument('-p', type=str, default='', help='pre-trained model path')
+    parser.add_argument('--plm', type=str, default='bert-base-uncased')  # WhereIsAI/UAE-Large-V1 all-MiniLM-L6-v2 meta-llama/Llama-2-7b-chat-hf
     parser.add_argument('-f', action='store_true')
+    parser.add_argument('--gpu', '--device', type=int, default=0)
+    parser.add_argument('--batch_size', type=int, default=2048)
     args, unparsed = parser.parse_known_args()
-    model, dataset, results = finetune(args.d, pretrained_file=args.p, fix_enc=args.f)
+
+    config = get_config(args)
+    model, dataset, results = finetune(config=config, pretrained_file=args.p, fix_enc=args.f)
     print_metrics(results)

@@ -5,18 +5,18 @@ import random
 import warnings
 from pathlib import Path
 
-import numpy as np
 import orjson as json
 import pandas as pd
 import torch
-from more_itertools import chunked
-from tqdm.auto import tqdm
 from utils import (
     amazon_dataset2fullname,
-    check_path,
+    angle_embedding,
+    bert_embedding,
     clean_text,
     core_n,
+    llama_embedding,
     load_plm,
+    sbert_embedding,
     timeit,
 )
 
@@ -141,68 +141,43 @@ def generate_training_data(rating_df):
 
 
 @timeit
-def generate_item_embedding(args, item_text_list, item_map, tokenizer, model, batch_size, drop_ratio=0):
+def generate_item_embedding(sentences, args, item_map, tokenizer, model, drop_ratio=0):
 
-    items, texts = zip(*item_text_list)
-    order_texts = [[0]] * len(items)
-    for item, text in zip(items, texts):
-        order_texts[item_map[item]] = text
-    for text in order_texts:
-        assert text != [0]
+    items, sentences = zip(*sentences)
+    order_texts = [sentences[item_map[item]] for item in items]
 
-    embeddings = []
-    for sentences in tqdm(
-        chunked(order_texts, batch_size),
-        total=len(order_texts) // batch_size + 1,
-        desc=f'Embedding wdr={drop_ratio}',
-        dynamic_ncols=True,
-        disable=args.quiet,
-    ):
-        if drop_ratio > 0:
-            random.seed(args.seed)
-            new_sentences = []
-            for sent in sentences:
-                new_sent = []
-                sent = sent.split(' ')
-                for wd in sent:
-                    rd = random.random()
-                    if rd > drop_ratio:
-                        new_sent.append(wd)
-                new_sent = ' '.join(new_sent)
-                new_sentences.append(new_sent)
-            sentences = new_sentences
+    if drop_ratio > 0:
+        sentences = apply_word_dropout(order_texts, drop_ratio, args.seed)
 
-        if args.plm_name == 'all-MiniLM-L6-v2':
-            embeddings.append(model.encode(sentences))
-            continue
+    if args.plm_name == 'all-MiniLM-L6-v2':
+        embeddings = sbert_embedding(sentences, args, model)
+    elif args.plm_name == 'bert-base-uncased':
+        embeddings = bert_embedding(sentences, args, model, tokenizer)
+    elif args.plm_name == 'meta-llama/Llama-2-7b-chat-hf':
+        embeddings = llama_embedding(sentences, args, model, tokenizer)
+    elif args.plm_name == 'WhereIsAI/UAE-Large-V1':
+        embeddings = angle_embedding(sentences, args, model, tokenizer)
+    else:
+        raise ValueError(f'Unknown model name: {args.plm_name}')
 
-        encoded = tokenizer(
-            sentences,
-            padding=True,
-            max_length=args.max_length,
-            truncation=True,
-            return_tensors='pt',
-        ).to(args.device)
-        outputs = model(**encoded)
+    return embeddings
 
-        if args.emb_type == 'CLS':
-            cls_output = outputs.last_hidden_state[:, 0,].detach().cpu()
-            embeddings.append(cls_output)
-        elif args.emb_type == 'Mean':
-            masked_output = outputs.last_hidden_state * encoded['attention_mask'].unsqueeze(-1)
-            mean_output = masked_output[:, 1:, :].sum(dim=1) / encoded['attention_mask'][:, 1:].sum(dim=-1, keepdim=True)
-            mean_output = mean_output.detach().cpu().numpy()
-            embeddings.append(mean_output)
 
-    embeddings = np.concatenate(embeddings)
-    print('Embeddings shape: ', embeddings.shape, flush=True)
+def apply_word_dropout(texts, drop_ratio, seed):
+    random.seed(seed)
+    new_texts = []
+    for text in texts:
+        words = text.split()
+        kept_words = [word for word in words if random.random() > drop_ratio]
+        new_texts.append(' '.join(kept_words))
+    return new_texts
 
-    # suffix=1, output DATASET.feat1CLS, with word drop ratio 0;
-    # suffix=2, output DATASET.feat2CLS, with word drop ratio > 0;
+
+def save_embeddings(embeddings, args, drop_ratio=0):
+    # if drop_ratio==0, output DATASET.featCLS1, else .featCLS2
     suffix = '2' if drop_ratio > 0 else '1'
-
-    file = os.path.join(args.output_path, args.dataset + '.feat' + suffix + args.emb_type)
-    embeddings.tofile(file)
+    filename = os.path.join(args.output_path, f"{args.dataset}.feat{suffix}{args.emb_type}")
+    embeddings.tofile(filename)
 
 
 def convert_to_atomic_files(args, train, valid, test, context_length=50):
@@ -242,7 +217,7 @@ def parse_args():
     parser.add_argument('--input_path', type=str, default='../raw/')
     parser.add_argument('--output_path', type=str, default='../downstream/')
     parser.add_argument('--gpu_id', type=int, default=0, help='ID of running GPU')
-    parser.add_argument('--plm_name', type=str, default='bert-base-uncased')
+    parser.add_argument('--plm_name', type=str, default='bert-base-uncased')  # WhereIsAI/UAE-Large-V1 all-MiniLM-L6-v2 meta-llama/Llama-2-7b-chat-hf
     parser.add_argument('--emb_type', type=str, default='CLS', help='item text emb type, can be CLS or Mean')
     parser.add_argument('--word_drop_ratio', type=float, default=0, help='word drop ratio, do not drop by default')
     parser.add_argument('--max_length', type=int, default=512, help='max length of input text')
@@ -271,8 +246,9 @@ def parse_args():
         args.dataset += f"_{kg_name}_{Path(args.kg_path).stem}"
 
     args.kg_path = f'{args.dataset_full_name}_{args.kg_path}'
-    args.output_path = os.path.join(args.output_path, 'dd', args.dataset)
-    check_path(args.output_path)
+    args.output_path = os.path.join(args.output_path, args.plm_name.split('/')[-1], args.dataset)
+    os.makedirs(args.output_path, exist_ok=True)
+    print(f'Saving into {args.output_path}', flush=True)
 
     return args
 
@@ -290,26 +266,27 @@ def main():
     plm_model = plm_model.to(args.device)
 
     # generate PLM emb and save to file
-    generate_item_embedding(
-        args,
+    embeddings = generate_item_embedding(
         item_text_list,
+        args,
         mappings['item'],
         tokenizer,
         plm_model,
-        batch_size=args.batch_size,
         drop_ratio=0,
     )
+    save_embeddings(embeddings, args)
+
     # pre-stored word drop PLM embs
     if args.word_drop_ratio > 0:
-        generate_item_embedding(
-            args,
+        embeddings = generate_item_embedding(
             item_text_list,
+            args,
             mappings['item'],
             tokenizer,
             plm_model,
-            batch_size=args.batch_size,
             drop_ratio=args.word_drop_ratio,
         )
+        save_embeddings(embeddings, args, drop_ratio=args.word_drop_ratio)
 
     # save interaction sequences into atomic files
     convert_to_atomic_files(args, **interactions)
