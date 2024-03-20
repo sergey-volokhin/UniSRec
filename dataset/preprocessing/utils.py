@@ -154,24 +154,8 @@ def bert_embedding(sentences, args, model, tokenizer):
             return_tensors='pt',
         ).to(args.device)
         outputs = model(**encoded)
-
-        if args.emb_type == 'CLS':
-            cls_output = (
-                outputs.last_hidden_state[
-                    :,
-                    0,
-                ]
-                .detach()
-                .cpu()
-            )
-            embeddings.append(cls_output)
-        elif args.emb_type == 'Mean':
-            masked_output = outputs.last_hidden_state * encoded['attention_mask'].unsqueeze(-1)
-            mean_output = masked_output[:, 1:, :].sum(dim=1) / encoded['attention_mask'][:, 1:].sum(
-                dim=-1, keepdim=True
-            )
-            mean_output = mean_output.detach().cpu().numpy()
-            embeddings.append(mean_output)
+        cls_output = outputs.last_hidden_state[:,0,].detach().cpu()
+        embeddings.append(cls_output)
     return np.concatenate(embeddings)
 
 

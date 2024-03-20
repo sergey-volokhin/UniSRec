@@ -28,7 +28,7 @@ def preprocess_rating(args):
     ratings_df = pd.read_csv(
         os.path.join(args.input_path, 'Ratings', args.dataset_full_name + '.csv'),
         dtype={'time': int, 'rating': float},
-        names=['asin', 'user_id', 'rating', 'time']
+        names=['asin', 'user_id', 'rating', 'time'],
     ).dropna().drop_duplicates(subset=['asin', 'user_id'])
 
     # remove items that don't have generated texts in both kg_v2 and kg_v3
@@ -45,7 +45,7 @@ def preprocess_rating(args):
 
     ratings_df = ratings_df[ratings_df.asin.isin(meta_asins)]
     ratings_df = core_n(ratings_df, n=args.user_k, columns=['user_id'])
-    return ratings_df.sort_values(by=['time'])
+    return ratings_df.sort_values('time')[['user_id', 'asin', 'rating', 'time']]
 
 
 @timeit
@@ -107,7 +107,7 @@ def generate_training_data(rating_df):
     # generate train valid test
     mappings = {
         'user': dict(zip(rating_df.user_id.unique(), range(rating_df.user_id.nunique()))),
-        'item': dict(zip(rating_df.asin.unique(), range(rating_df.asin.nunique())))
+        'item': dict(zip(rating_df.asin.unique(), range(rating_df.asin.nunique()))),
     }
 
     rating_df['user_id'] = rating_df.user_id.map(mappings['user'])
@@ -144,19 +144,22 @@ def generate_training_data(rating_df):
 def generate_item_embedding(sentences, args, item_map, tokenizer, model, drop_ratio=0):
 
     items, sentences = zip(*sentences)
-    order_texts = [sentences[item_map[item]] for item in items]
+    order_texts = [None] * len(items)
+    for item, text in zip(items, sentences):
+        order_texts[item_map[item]] = text
+    assert all(text is not None for text in order_texts)
 
     if drop_ratio > 0:
         sentences = apply_word_dropout(order_texts, drop_ratio, args.seed)
 
     if args.plm_name == 'all-MiniLM-L6-v2':
-        embeddings = sbert_embedding(sentences, args, model)
+        embeddings = sbert_embedding(order_texts, args, model)
     elif args.plm_name == 'bert-base-uncased':
-        embeddings = bert_embedding(sentences, args, model, tokenizer)
+        embeddings = bert_embedding(order_texts, args, model, tokenizer)
     elif args.plm_name == 'meta-llama/Llama-2-7b-chat-hf':
-        embeddings = llama_embedding(sentences, args, model, tokenizer)
+        embeddings = llama_embedding(order_texts, args, model, tokenizer)
     elif args.plm_name == 'WhereIsAI/UAE-Large-V1':
-        embeddings = angle_embedding(sentences, args, model, tokenizer)
+        embeddings = angle_embedding(order_texts, args, model, tokenizer)
     else:
         raise ValueError(f'Unknown model name: {args.plm_name}')
 
@@ -165,18 +168,18 @@ def generate_item_embedding(sentences, args, item_map, tokenizer, model, drop_ra
 
 def apply_word_dropout(texts, drop_ratio, seed):
     random.seed(seed)
-    new_texts = []
+    dropped = []
     for text in texts:
         words = text.split()
         kept_words = [word for word in words if random.random() > drop_ratio]
-        new_texts.append(' '.join(kept_words))
-    return new_texts
+        dropped.append(' '.join(kept_words))
+    return dropped
 
 
 def save_embeddings(embeddings, args, drop_ratio=0):
     # if drop_ratio==0, output DATASET.featCLS1, else .featCLS2
     suffix = '2' if drop_ratio > 0 else '1'
-    filename = os.path.join(args.output_path, f"{args.dataset}.feat{suffix}{args.emb_type}")
+    filename = os.path.join(args.output_path, f"{args.dataset}.feat{suffix}CLS")
     embeddings.tofile(filename)
 
 
@@ -218,16 +221,9 @@ def parse_args():
     parser.add_argument('--output_path', type=str, default='../downstream/')
     parser.add_argument('--gpu_id', type=int, default=0, help='ID of running GPU')
     parser.add_argument('--plm_name', type=str, default='bert-base-uncased')  # WhereIsAI/UAE-Large-V1 all-MiniLM-L6-v2 meta-llama/Llama-2-7b-chat-hf
-    parser.add_argument('--emb_type', type=str, default='CLS', help='item text emb type, can be CLS or Mean')
     parser.add_argument('--word_drop_ratio', type=float, default=0, help='word drop ratio, do not drop by default')
     parser.add_argument('--max_length', type=int, default=512, help='max length of input text')
-    parser.add_argument(
-        '--kg_features',
-        type=str,
-        nargs='*',
-        choices=['gen_description', 'gen_usecases', 'gen_expert'],
-        help='KG features',
-    )
+    parser.add_argument('--kg_features', type=str, nargs='*', choices=['gen_description', 'gen_usecases', 'gen_expert'], help='KG features')
     parser.add_argument('--kg_path', type=str, default='kg_v2.tsv', help='KG file path')
     parser.add_argument('--batch_size', type=int, default=32, help='batch size for PLM')
     parser.add_argument('--quiet', action='store_true', help='disable tqdm')
@@ -235,7 +231,7 @@ def parse_args():
     parser.add_argument('--vanilla_features', type=str, nargs='*', help='features to use', choices=['title', 'category', 'brand', 'description'])
     args = parser.parse_args()
 
-    args.device = torch.device('cuda:' + str(args.gpu_id) if torch.cuda.is_available() and args.gpu_id > -1 else 'cpu')
+    args.device = torch.device('cuda' if torch.cuda.is_available() and args.gpu_id > -1 else 'cpu')
 
     assert args.vanilla_features or args.kg_features, 'at least one of vanilla and kg_features should be True'
     args.dataset_full_name = amazon_dataset2fullname[args.dataset]
