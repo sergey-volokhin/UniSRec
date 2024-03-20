@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 import warnings
 from collections import defaultdict
 
@@ -23,7 +24,7 @@ def get_config(args):
         os.path.basename(config['data_path'])
     )
     init_seed(config['seed'], config['reproducibility'])
-    # config["state"] = 'warning'
+    config["state"] = 'warning'
     config['train_batch_size'] = args.batch_size
     config['eval_batch_size'] = args.batch_size
     config['gpu_id'] = args.gpu
@@ -93,8 +94,8 @@ if __name__ == '__main__':
     parser.add_argument('-f', action='store_true')
     parser.add_argument('--gpu', '--device', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=2048)
+    print(sys.argv)
     args, unparsed = parser.parse_known_args()
-
     config = get_config(args)
     model, dataset, results = finetune(config=config, pretrained_file=args.p, fix_enc=args.f)
     print_metrics(results)

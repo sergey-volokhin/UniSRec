@@ -239,7 +239,7 @@ def parse_args():
         args.dataset += '_w_' + '_'.join(args.vanilla_features)
     if args.kg_features:
         kg_name = '_'.join([i.replace('gen_', '') for i in args.kg_features])
-        args.dataset += f"_{kg_name}_{Path(args.kg_path).stem}"
+        args.dataset += f"_w_{kg_name}_{Path(args.kg_path).stem}"
 
     args.kg_path = f'{args.dataset_full_name}_{args.kg_path}'
     args.output_path = os.path.join(args.output_path, args.plm_name.split('/')[-1], args.dataset)
