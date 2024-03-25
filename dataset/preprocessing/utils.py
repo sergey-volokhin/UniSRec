@@ -1,5 +1,4 @@
 import html
-import os
 import re
 import string
 import time
@@ -11,6 +10,7 @@ import torch
 from bs4 import BeautifulSoup
 from more_itertools import chunked
 from sentence_transformers import SentenceTransformer
+from torch.nn import functional as F
 from tqdm.auto import tqdm
 from transformers import AutoModel, AutoTokenizer
 from unidecode import unidecode
@@ -154,7 +154,7 @@ def bert_embedding(sentences, args, model, tokenizer):
             return_tensors='pt',
         ).to(args.device)
         outputs = model(**encoded)
-        cls_output = outputs.last_hidden_state[:,0,].detach().cpu()
+        cls_output = outputs.last_hidden_state[:, 0].detach().cpu()
         embeddings.append(cls_output)
     return np.concatenate(embeddings)
 
@@ -163,11 +163,18 @@ def sbert_embedding(sentences, args, model: SentenceTransformer):
     return model.encode(sentences, show_progress_bar=not args.quiet, batch_size=args.batch_size)
 
 
-def llama_embedding(sentences, args, model, tokenizer):
-    ...
+@sort_process_unsort
+def sfr_embedding(sentences, args, model, tokenizer):
 
+    def last_token_pool(last_hidden_states, attention_mask):
+        left_padding = (attention_mask[:, -1].sum() == attention_mask.shape[0])
+        if left_padding:
+            return last_hidden_states[:, -1]
+        else:
+            sequence_lengths = attention_mask.sum(dim=1) - 1
+            batch_size = last_hidden_states.shape[0]
+            return last_hidden_states[torch.arange(batch_size, device=last_hidden_states.device), sequence_lengths]
 
-def angle_embedding(sentences, args, model, tokenizer):
     embeddings = []
     for batch in tqdm(
         chunked(sentences, args.batch_size),
@@ -176,6 +183,7 @@ def angle_embedding(sentences, args, model, tokenizer):
         dynamic_ncols=True,
         disable=args.quiet,
     ):
+
         encoded = tokenizer(
             batch,
             padding=True,
@@ -183,5 +191,19 @@ def angle_embedding(sentences, args, model, tokenizer):
             truncation=True,
             return_tensors='pt',
         ).to(args.device)
-        embeddings.append(model(**encoded).pooler_output.detach().cpu().numpy())
-    return np.concatenate(embeddings)
+        outputs = model(**encoded)
+        cls_output = last_token_pool(outputs.last_hidden_state, encoded['attention_mask']).detach().cpu()
+        embeddings.append(cls_output)
+
+    embeddings = np.concatenate(embeddings)
+
+    if args.normalize:
+        embeddings = F.normalize(embeddings, p=2, dim=1)
+    return embeddings
+
+
+emb_dict = {
+    'all-MiniLM-L6-v2': sbert_embedding,
+    'bert-base-uncased': bert_embedding,
+    'Salesforce/SFR-Embedding-Mistral': sfr_embedding,
+}

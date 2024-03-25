@@ -10,13 +10,10 @@ import pandas as pd
 import torch
 from utils import (
     amazon_dataset2fullname,
-    angle_embedding,
-    bert_embedding,
     clean_text,
     core_n,
-    llama_embedding,
+    emb_dict,
     load_plm,
-    sbert_embedding,
     timeit,
 )
 
@@ -152,18 +149,7 @@ def generate_item_embedding(sentences, args, item_map, tokenizer, model, drop_ra
     if drop_ratio > 0:
         sentences = apply_word_dropout(order_texts, drop_ratio, args.seed)
 
-    if args.plm_name == 'all-MiniLM-L6-v2':
-        embeddings = sbert_embedding(order_texts, args, model)
-    elif args.plm_name == 'bert-base-uncased':
-        embeddings = bert_embedding(order_texts, args, model, tokenizer)
-    elif args.plm_name == 'meta-llama/Llama-2-7b-chat-hf':
-        embeddings = llama_embedding(order_texts, args, model, tokenizer)
-    elif args.plm_name == 'WhereIsAI/UAE-Large-V1':
-        embeddings = angle_embedding(order_texts, args, model, tokenizer)
-    else:
-        raise ValueError(f'Unknown model name: {args.plm_name}')
-
-    return embeddings
+    return emb_dict[args.plm_name](order_texts, args, model, tokenizer)
 
 
 def apply_word_dropout(texts, drop_ratio, seed):
@@ -229,6 +215,7 @@ def parse_args():
     parser.add_argument('--quiet', action='store_true', help='disable tqdm')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     parser.add_argument('--vanilla_features', type=str, nargs='*', help='features to use', choices=['title', 'category', 'brand', 'description'])
+    parser.add_argument('--normalize', action='store_true')
     args = parser.parse_args()
 
     args.device = torch.device('cuda' if torch.cuda.is_available() and args.gpu_id > -1 else 'cpu')

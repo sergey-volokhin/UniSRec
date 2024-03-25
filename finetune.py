@@ -20,7 +20,7 @@ def get_config(args):
     config = Config(model=UniSRec, dataset=args.d, config_file_list=props)
     config['data_path'] = os.path.join(
         os.path.dirname(config['data_path']),
-        args.plm.split('/')[-1],
+        args.plm_name.split('/')[-1],
         os.path.basename(config['data_path'])
     )
     init_seed(config['seed'], config['reproducibility'])
@@ -90,7 +90,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', type=str, default='Scientific', help='dataset name')
     parser.add_argument('-p', type=str, default='', help='pre-trained model path')
-    parser.add_argument('--plm', type=str, default='bert-base-uncased')  # WhereIsAI/UAE-Large-V1 all-MiniLM-L6-v2 meta-llama/Llama-2-7b-chat-hf
+    parser.add_argument('--plm_name', type=str, default='bert-base-uncased')  # Salesforce/SFR-Embedding-Mistral all-MiniLM-L6-v2 meta-llama/Llama-2-7b-chat-hf
     parser.add_argument('-f', action='store_true')
     parser.add_argument('--gpu', '--device', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=2048)
