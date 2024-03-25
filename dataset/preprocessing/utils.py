@@ -136,6 +136,7 @@ def sort_process_unsort(func):
 
 
 @sort_process_unsort
+@torch.no_grad()
 def bert_embedding(sentences, args, model, tokenizer):
     embeddings = []
     for batch in tqdm(
@@ -164,6 +165,7 @@ def sbert_embedding(sentences, args, model: SentenceTransformer):
 
 
 @sort_process_unsort
+@torch.no_grad()
 def sfr_embedding(sentences, args, model, tokenizer):
 
     def last_token_pool(last_hidden_states, attention_mask):
